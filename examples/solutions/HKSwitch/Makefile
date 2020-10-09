@@ -9,3 +9,4 @@ EXTRA_COMPONENT_DIRS := $(realpath ../../..)
 SDKCONFIG_DEFAULTS := sdkconfig_$(chip).defaults
 
 include $(IDF_PATH)/make/project.mk
+

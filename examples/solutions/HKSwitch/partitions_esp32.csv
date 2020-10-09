@@ -5,4 +5,4 @@ otadata,  data, ota,     ,        0x2000,
 phy_init, data, phy,     ,        0x1000,
 ota_0,    app,  ota_0,   ,        1M,
 ota_1,    app,  ota_1,   ,        1M,
-fctry,    data, nvs,     ,        0x4000
+fctry,    data, nvs,     ,        0x4000,

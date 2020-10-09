@@ -30,6 +30,11 @@ int HAL_Snprintf(char *str, const int len, const char *fmt, ...);
 #include "lightbulb.h"
 #include "esp_log.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+
+#include "linkkit_solo.h"
+
 static const char* TAG = "linkkit_example_solo";
 
 #define EXAMPLE_TRACE(...)                                          \
@@ -135,14 +140,97 @@ static int user_trigger_event_reply_event_handler(const int devid, const int msg
     return 0;
 }
 
+static int HKParseCrontabTimer(HKCrontabTimer *item, char* crontabStr)
+{
+
+    int v;
+    char *ch = crontabStr;
+    if (!ch) return 0;
+    // parse min
+    if (*ch <= '9' && *ch >= '0') {
+        v = *ch - '0';
+    } else {
+        return 0;
+    }
+
+    ch++;
+
+    if (*ch == ' ') {
+        item->min = v;
+    } else if (*ch <= '9' && *ch >= '0') {
+        v = v*10;
+        v += *ch - '0';
+        item->min = v;
+    } else {
+        return 0;
+    }
+
+    ch++;
+    if (*ch != ' ') return 0;
+    ch++;
+    v = 0;
+    // parse hour
+    if (*ch <= '9' && *ch >= '0') {
+        v = *ch - '0';
+    } else {
+        return 0;
+    }
+
+    ch++;
+
+    if (*ch == ' ') {
+        item->hour = v;
+    } else if (*ch <= '9' && *ch >= '0') {
+        v = v*10;
+        v += *ch - '0';
+        item->hour = v;
+    } else {
+        return 0;
+    }
+
+    ch++;
+    if (*ch != ' ') return 0;
+    ch++;
+    //"1 13 * * 1,2,3,4,5,6,7"
+    if (*ch != '*') return 0;
+    ch++;
+    if (*ch != ' ') return 0;
+    ch++;
+    if (*ch != '*') return 0;
+    ch++;
+    if (*ch != ' ') return 0;
+    ch++;
+    // parse week
+    if (*ch <= '7' && *ch >= '1') {
+        item->week[*ch - '1'] = 1;
+    } else {
+        return 0;
+    }
+    ch++;
+
+    while (ch) {
+        if (*ch != ',') return 0;
+        ch++;
+        if (ch && (*ch <= '7' && *ch >= '1')) {
+            item->week[*ch - '1'] = 1; 
+        } else {
+            return 0;
+        }        
+        ch++;
+    } 
+
+    return 1;
+}
+
+
 static int user_property_set_event_handler(const int devid, const char *request, const int request_len)
 {
     int res = 0;
-    cJSON *root = NULL, *LightSwitch = NULL, *LightColor = NULL;
+    cJSON *root = NULL, *LightSwitch = NULL;
     ESP_LOGI(TAG,"Property Set Received, Devid: %d, Request: %s", devid, request);
     
-    lightbulb_set_brightness(78);
-    lightbulb_set_saturation(100);
+    //lightbulb_set_brightness(78);
+    //lightbulb_set_saturation(100);
     
     if (!request) {
         return NULL_VALUE_ERROR;
@@ -156,13 +244,19 @@ static int user_property_set_event_handler(const int devid, const char *request,
     }
 
     /** Switch Lightbulb On/Off   */
-    LightSwitch = cJSON_GetObjectItem(root, "LightSwitch");
+    LightSwitch = cJSON_GetObjectItem(root, "powerstate");
     if (LightSwitch) {
+        ESP_LOGI(TAG, "powerstate: %d",LightSwitch->valueint);
         lightbulb_set_on(LightSwitch->valueint);
     } 
 
+    LightSwitch = cJSON_GetObjectItem(root, "delayStartTime");
+    if (LightSwitch) {
+        ESP_LOGI(TAG, "delayStartTime: %d",LightSwitch->valueint);
+    } 
+
     /** Switch Lightbulb Hue */
-    LightSwitch = cJSON_GetObjectItem(root, "RGBColor");
+   /* LightSwitch = cJSON_GetObjectItem(root, "RGBColor");
     if (LightSwitch) {
         LightColor = cJSON_GetObjectItem(LightSwitch, "Red");
         lightbulb_set_hue(LightColor ? LightColor->valueint : 0);
@@ -171,7 +265,36 @@ static int user_property_set_event_handler(const int devid, const char *request,
         LightColor = cJSON_GetObjectItem(LightSwitch, "Blue");
         lightbulb_set_hue(LightColor ? LightColor->valueint : 240);
     }
-    
+    */
+    int timerCount;
+    cJSON *timerRoot, *itemTimer, *itemEnable, *itemPowerstate;
+    HKCrontab crontab;
+
+    LightSwitch = cJSON_GetObjectItem(root, "LocalTimer");
+    if (LightSwitch) {
+        timerCount = cJSON_GetArraySize(LightSwitch);
+        for (int i = 0; i < timerCount; i++) {
+            timerRoot = cJSON_GetArrayItem(LightSwitch, i);
+            if (!timerRoot) continue;
+            itemTimer = cJSON_GetObjectItem(timerRoot, "Timer");
+            if (!itemTimer) continue;
+            itemEnable = cJSON_GetObjectItem(timerRoot, "Enable");
+            if (!itemEnable) continue;
+            itemPowerstate = cJSON_GetObjectItem(timerRoot, "powerstate");
+            if (!itemPowerstate) continue;
+
+            crontab.enable = itemEnable->valueint;
+            crontab.powerstate = itemPowerstate->valueint;
+            
+            if (!crontab.enable) continue;
+
+            if (!HKParseCrontabTimer(&crontab.timer, itemTimer->valuestring)) continue;
+
+            ESP_LOGI(TAG, "LocalTimer[%d]: %d, powerstate:%d, Enable:%d", i, crontab.timer.week[0], crontab.powerstate, crontab.enable);
+
+        }
+    }
+
     cJSON_Delete(root);
 
     res = IOT_Linkkit_Report(EXAMPLE_MASTER_DEVID, ITM_MSG_POST_PROPERTY,
@@ -352,6 +475,7 @@ static void user_post_event(void)
     EXAMPLE_TRACE("Post Event Message ID: %d", res);
 }
 
+/*
 static void user_deviceinfo_update(void)
 {
     int res = 0;
@@ -370,6 +494,25 @@ static void user_deviceinfo_delete(void)
     res = IOT_Linkkit_Report(EXAMPLE_MASTER_DEVID, ITM_MSG_DEVICEINFO_DELETE,
                              (unsigned char *)device_info_delete, strlen(device_info_delete));
     EXAMPLE_TRACE("Device Info Delete Message ID: %d", res);
+}
+*/
+
+static void power_update_timer_handler(void *timer)
+{
+    ESP_LOGI(TAG, "power_update_timer");
+
+    static int cnt = 0;
+    int res = 0;
+
+    cnt++;
+    char property_payload[60] = {0};
+    HAL_Snprintf(property_payload, sizeof(property_payload), "{\"TotalConsumption\": %d, \"RealTimePower\": %d}", cnt, cnt*2);
+
+    res = IOT_Linkkit_Report(EXAMPLE_MASTER_DEVID, ITM_MSG_POST_PROPERTY,
+                             (unsigned char *)property_payload, strlen(property_payload));
+
+    EXAMPLE_TRACE("Post Property Message ID: %d", res);
+
 }
 
 static int linkkit_thread(void *paras)
@@ -447,6 +590,13 @@ static int linkkit_thread(void *paras)
         IOT_Linkkit_Close(g_user_example_ctx.master_devid);
         return -1;
     }
+
+    /* start timer send fake data */
+    TimerHandle_t timer = xTimerCreate("powerUpdateTimer", 1000*30 / portTICK_RATE_MS,
+                                         true, NULL, power_update_timer_handler);
+ 
+    xTimerStart(timer, portMAX_DELAY);
+    
 
     while (1) {
         IOT_Linkkit_Yield(EXAMPLE_YIELD_TIMEOUT_MS);

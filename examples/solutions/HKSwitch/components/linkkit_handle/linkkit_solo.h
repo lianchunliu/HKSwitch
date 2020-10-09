@@ -24,6 +24,19 @@
 #ifndef _LINKKIT_SOLO_H__
 #define _LINKKIT_SOLO_H__
 
+typedef struct {
+    int min;
+    int hour;
+    int week[7];
+} HKCrontabTimer;
+
+
+typedef struct {
+    int enable;
+    int powerstate;
+    HKCrontabTimer timer;
+} HKCrontab;
+
 void linkkit_main(void *paras);
 
 #endif
