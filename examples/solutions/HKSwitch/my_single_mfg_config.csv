@@ -1,0 +1,6 @@
+key,type,encoding,value
+aliyun-key,namespace,,
+DeviceName,data,string,test_02
+DeviceSecret,data,string,29b5c4aa8864de44d5b94bfc47b84b29
+ProductKey,data,string,a1reBrpHcUd
+ProductSecret,data,string,mDWlPgrWD3mWQZma
